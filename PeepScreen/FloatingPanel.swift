@@ -20,6 +20,9 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     private var dragBarHostView: NSHostingView<DragBarView>!
     private var tuckedTabHostView: NSHostingView<TuckedTabView>?
     private var previewWindow: NSWindow?
+    private var tuckedTrackingArea: NSTrackingArea?
+    private var isPeeking: Bool = false
+    private let peekOffset: CGFloat = 15
     var stateManager: PanelStateManager!
     var lastExpandedFrame: NSRect = .zero
 
@@ -324,6 +327,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     }
 
     private func transitionToExpanded() {
+        removeTrackingArea()
         removeTuckedTab()
 
         dragBarHostView.isHidden = false
@@ -387,6 +391,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
 
         animateFrame(to: targetFrame, duration: 0.2, cornerRadius: 4) { [weak self] in
             self?.addTuckedTabView(edge: edge)
+            self?.installTrackingArea()
         }
     }
 
@@ -403,6 +408,59 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
             tabView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
         ])
         tuckedTabHostView = tabView
+    }
+
+    // MARK: - Tucked hover peek
+
+    private func installTrackingArea() {
+        guard let contentView else { return }
+        removeTrackingArea()
+        let area = NSTrackingArea(
+            rect: contentView.bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        contentView.addTrackingArea(area)
+        tuckedTrackingArea = area
+    }
+
+    private func removeTrackingArea() {
+        if let area = tuckedTrackingArea {
+            contentView?.removeTrackingArea(area)
+            tuckedTrackingArea = nil
+        }
+        isPeeking = false
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard case .tucked(let edge) = stateManager.currentState, !isPeeking else { return }
+        isPeeking = true
+        animatePeek(edge: edge, out: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard case .tucked(let edge) = stateManager.currentState, isPeeking else { return }
+        isPeeking = false
+        animatePeek(edge: edge, out: false)
+    }
+
+    private func animatePeek(edge: TuckEdge, out: Bool) {
+        let offset = out ? peekOffset : -peekOffset
+        var origin = frame.origin
+
+        switch edge {
+        case .left:   origin.x += offset
+        case .right:  origin.x -= offset
+        case .top:    origin.y -= offset
+        case .bottom: origin.y += offset
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = out ? 0.2 : 0.3
+            context.timingFunction = CAMediaTimingFunction(name: out ? .easeOut : .easeIn)
+            self.animator().setFrameOrigin(origin)
+        }
     }
 
     func applyPreferences() {

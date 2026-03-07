@@ -13,6 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
     private let stateManager = PanelStateManager()
     private var miniUpdateWorkItem: DispatchWorkItem?
     private var statusBarController: StatusBarController!
+    private var previousApp: NSRunningApplication?
+    private var localMonitor: Any?
     private var globalMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -60,9 +62,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
     // MARK: - Panel Toggle
 
     func togglePanelVisibility() {
-        if panel.isVisible {
-            panel.orderOut(nil)
-        } else {
+        switch stateManager.currentState {
+        case .expanded, .mini:
+            previousApp = NSWorkspace.shared.frontmostApplication
+            stateManager.tuck(edge: .left)
+            previousApp?.activate()
+        case .tucked:
+            stateManager.untuck()
+            NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
             panel.makeFirstResponder(terminalView)
         }
@@ -78,11 +85,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
     // MARK: - Global Hotkey
 
     private func setupGlobalHotkey() {
-        guard AXIsProcessTrusted() else { return }
+        // Local monitor: works when our app is focused
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.modifierFlags.contains([.command, .shift]) &&
+               event.keyCode == 17 { // 17 = T key
+                self?.togglePanelVisibility()
+                return nil
+            }
+            return event
+        }
 
+        // Global monitor: works when another app is focused (requires Accessibility)
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if mods == [.command, .shift] && event.charactersIgnoringModifiers == "t" {
+            if event.modifierFlags.contains([.command, .shift]) &&
+               event.keyCode == 17 {
                 self?.togglePanelVisibility()
             }
         }
