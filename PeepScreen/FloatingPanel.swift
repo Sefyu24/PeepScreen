@@ -113,6 +113,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
             if locationInWindow.y >= contentHeight - dragBarHeight {
                 startCustomDrag(with: event)
             } else {
+                makeKey()
                 super.mouseDown(with: event)
             }
         }
@@ -314,12 +315,27 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         removeTuckedTab()
 
         dragBarHostView.isHidden = false
-        terminalView.isHidden = false
         dragBarHostView.rootView = DragBarView(isMini: false, lastLine: "")
+
+        // Re-add terminal to layout before animating
+        if terminalView.superview == nil, let effectView = contentView {
+            terminalView.translatesAutoresizingMaskIntoConstraints = false
+            effectView.addSubview(terminalView)
+            NSLayoutConstraint.activate([
+                terminalView.topAnchor.constraint(equalTo: dragBarHostView.bottomAnchor),
+                terminalView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+                terminalView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+                terminalView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+            ])
+        }
+        terminalView.isHidden = false
 
         animateFrame(to: lastExpandedFrame, cornerRadius: 12) { [weak self] in
             guard let self else { return }
             if let tv = self.terminalView as? LocalProcessTerminalView {
+                // Force SwiftTerm to recalculate size for the restored frame
+                tv.needsLayout = true
+                tv.needsDisplay = true
                 self.makeFirstResponder(tv)
             }
         }
@@ -328,7 +344,8 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     private func transitionToMini() {
         saveExpandedFrameIfNeeded()
 
-        terminalView.isHidden = true
+        // Remove terminal from layout so it doesn't resize with the mini frame
+        terminalView.removeFromSuperview()
         dragBarHostView.rootView = DragBarView(isMini: true, lastLine: stateManager.lastLineText)
         dragBarHostView.isHidden = false
         removeTuckedTab()
@@ -346,7 +363,8 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     private func transitionToTucked(edge: TuckEdge) {
         saveExpandedFrameIfNeeded()
 
-        terminalView.isHidden = true
+        // Remove terminal from layout so it doesn't resize with the tucked frame
+        terminalView.removeFromSuperview()
         dragBarHostView.isHidden = true
 
         let targetFrame = tuckedFrame(for: edge)
@@ -369,6 +387,10 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
             tabView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
         ])
         tuckedTabHostView = tabView
+    }
+
+    func applyPreferences() {
+        alphaValue = CGFloat(PreferencesManager.shared.panelOpacity)
     }
 
     func updateMiniContent() {

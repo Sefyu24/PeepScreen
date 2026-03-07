@@ -8,6 +8,9 @@ import SwiftTerm
 
 class DroppableTerminalView: LocalProcessTerminalView {
 
+    /// Called when terminal content changes (for mini mode updates)
+    var onRangeChanged: ((_ startY: Int, _ endY: Int) -> Void)?
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         registerForDraggedTypes([.fileURL])
@@ -16,6 +19,11 @@ class DroppableTerminalView: LocalProcessTerminalView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         registerForDraggedTypes([.fileURL])
+    }
+
+    override func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+        super.rangeChanged(source: source, startY: startY, endY: endY)
+        onRangeChanged?(startY, endY)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

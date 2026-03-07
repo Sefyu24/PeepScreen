@@ -6,12 +6,14 @@
 import AppKit
 import SwiftTerm
 
-class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDelegate, TerminalViewDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDelegate {
 
-    private var panel: FloatingPanel!
+    var panel: FloatingPanel!
     private var terminalView: DroppableTerminalView!
     private let stateManager = PanelStateManager()
     private var miniUpdateWorkItem: DispatchWorkItem?
+    private var statusBarController: StatusBarController!
+    private var globalMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -20,19 +22,62 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
 
         terminalView = DroppableTerminalView(frame: NSRect(x: 0, y: 0, width: 500, height: 326))
         terminalView.processDelegate = self
-        terminalView.terminalDelegate = self
         terminalView.nativeBackgroundColor = .clear
+
+        terminalView.onRangeChanged = { [weak self] startY, endY in
+            self?.handleRangeChanged(startY: startY, endY: endY)
+        }
 
         panel = FloatingPanel(contentRect: panelRect, terminalView: terminalView, stateManager: stateManager)
         panel.center()
         panel.lastExpandedFrame = panel.frame
-        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+
+        panel.applyPreferences()
+
+        statusBarController = StatusBarController(stateManager: stateManager, panel: panel)
+        statusBarController.onTogglePanel = { [weak self] in self?.togglePanelVisibility() }
+        statusBarController.onPreferencesRequested = { [weak self] in self?.showPreferences() }
+
+        setupGlobalHotkey()
 
         DispatchQueue.main.async { [self] in
-            let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+            let shell = PreferencesManager.shared.defaultShell
             let home = NSHomeDirectory()
-            terminalView.startProcess(executable: shell, environment: nil, execName: "-zsh", currentDirectory: home)
+            terminalView.startProcess(executable: shell, environment: nil, execName: "-\(((shell as NSString).lastPathComponent))", currentDirectory: home)
+            panel.makeKey()
             panel.makeFirstResponder(terminalView)
+        }
+    }
+
+    // MARK: - Panel Toggle
+
+    func togglePanelVisibility() {
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+            panel.makeFirstResponder(terminalView)
+        }
+    }
+
+    // MARK: - Preferences
+
+    func showPreferences() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
+    // MARK: - Global Hotkey
+
+    private func setupGlobalHotkey() {
+        guard AXIsProcessTrusted() else { return }
+
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if mods == [.command, .shift] && event.charactersIgnoringModifiers == "t" {
+                self?.togglePanelVisibility()
+            }
         }
     }
 
@@ -50,24 +95,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
     }
 
-    // MARK: - TerminalViewDelegate
+    // MARK: - Terminal range change (for mini mode)
 
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-    }
-
-    func setTerminalTitle(source: TerminalView, title: String) {
-    }
-
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {
-    }
-
-    func scrolled(source: TerminalView, position: Double) {
-    }
-
-    func clipboardCopy(source: TerminalView, content: Data) {
-    }
-
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+    private func handleRangeChanged(startY: Int, endY: Int) {
         miniUpdateWorkItem?.cancel()
         miniUpdateWorkItem = DispatchWorkItem { [weak self] in
             guard let self else { return }

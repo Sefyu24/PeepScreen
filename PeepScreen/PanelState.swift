@@ -9,6 +9,14 @@ enum PanelState: Equatable {
     case expanded
     case mini
     case tucked(edge: TuckEdge)
+
+    var displayName: String {
+        switch self {
+        case .expanded: return "Expanded"
+        case .mini: return "Mini"
+        case .tucked: return "Tucked"
+        }
+    }
 }
 
 enum TuckEdge: Equatable {
@@ -29,6 +37,7 @@ class PanelStateManager {
     var lastLineText: String = ""
 
     weak var delegate: PanelStateDelegate?
+    weak var statusBarObserver: PanelStateDelegate?
 
     func toggleMini() {
         switch currentState {
@@ -52,5 +61,6 @@ class PanelStateManager {
     private func transition(to newState: PanelState) {
         currentState = newState
         delegate?.panelStateDidChange(to: newState)
+        statusBarObserver?.panelStateDidChange(to: newState)
     }
 }
