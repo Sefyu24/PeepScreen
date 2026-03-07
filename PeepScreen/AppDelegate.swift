@@ -29,7 +29,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
         }
 
         panel = FloatingPanel(contentRect: panelRect, terminalView: terminalView, stateManager: stateManager)
-        panel.center()
+
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.midX - panelRect.width / 2
+            let y = screenFrame.midY - panelRect.height / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
         panel.lastExpandedFrame = panel.frame
         panel.makeKeyAndOrderFront(nil)
 

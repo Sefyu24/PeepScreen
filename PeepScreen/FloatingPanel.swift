@@ -12,7 +12,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     private let dragBarHeight: CGFloat = 24
     private let miniWidth: CGFloat = 200
     private let miniHeight: CGFloat = 44
-    private let tuckedThickness: CGFloat = 8
+    private let tuckedThickness: CGFloat = 50
     private let tuckedLength: CGFloat = 200
     private let edgeSnapThreshold: CGFloat = 30
 
@@ -255,20 +255,22 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
 
     private func tuckedFrame(for edge: TuckEdge) -> NSRect {
         let sf = currentScreen.visibleFrame
+        let thin: CGFloat = tuckedThickness
+        let long: CGFloat = tuckedLength
 
         switch edge {
         case .left:
-            return NSRect(x: sf.minX, y: frame.midY - tuckedLength / 2,
-                          width: tuckedThickness, height: tuckedLength)
+            return NSRect(x: sf.minX, y: sf.midY - long / 2,
+                          width: thin, height: long)
         case .right:
-            return NSRect(x: sf.maxX - tuckedThickness, y: frame.midY - tuckedLength / 2,
-                          width: tuckedThickness, height: tuckedLength)
+            return NSRect(x: sf.maxX - thin, y: sf.midY - long / 2,
+                          width: thin, height: long)
         case .top:
-            return NSRect(x: frame.midX - tuckedLength / 2, y: sf.maxY - tuckedThickness,
-                          width: tuckedLength, height: tuckedThickness)
+            return NSRect(x: sf.midX - long / 2, y: sf.maxY - thin,
+                          width: long, height: thin)
         case .bottom:
-            return NSRect(x: frame.midX - tuckedLength / 2, y: sf.minY,
-                          width: tuckedLength, height: tuckedThickness)
+            return NSRect(x: sf.midX - long / 2, y: sf.minY,
+                          width: long, height: thin)
         }
     }
 
@@ -311,29 +313,43 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         }
     }
 
+    private func centeredFrame(for size: NSSize) -> NSRect {
+        let sf = currentScreen.visibleFrame
+        return NSRect(
+            x: sf.midX - size.width / 2,
+            y: sf.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
     private func transitionToExpanded() {
         removeTuckedTab()
 
         dragBarHostView.isHidden = false
         dragBarHostView.rootView = DragBarView(isMini: false, lastLine: "")
 
-        // Re-add terminal to layout before animating
-        if terminalView.superview == nil, let effectView = contentView {
-            terminalView.translatesAutoresizingMaskIntoConstraints = false
-            effectView.addSubview(terminalView)
-            NSLayoutConstraint.activate([
-                terminalView.topAnchor.constraint(equalTo: dragBarHostView.bottomAnchor),
-                terminalView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
-                terminalView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
-                terminalView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
-            ])
-        }
-        terminalView.isHidden = false
+        // Center the restored frame on screen
+        let targetFrame = centeredFrame(for: lastExpandedFrame.size)
 
-        animateFrame(to: lastExpandedFrame, cornerRadius: 12) { [weak self] in
-            guard let self else { return }
+        // Animate the panel frame first, then re-add terminal at final size
+        // to avoid intermediate resizes causing garbled text
+        animateFrame(to: targetFrame, cornerRadius: 12) { [weak self] in
+            guard let self, let effectView = self.contentView else { return }
+
+            if self.terminalView.superview == nil {
+                self.terminalView.translatesAutoresizingMaskIntoConstraints = false
+                effectView.addSubview(self.terminalView)
+                NSLayoutConstraint.activate([
+                    self.terminalView.topAnchor.constraint(equalTo: self.dragBarHostView.bottomAnchor),
+                    self.terminalView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+                    self.terminalView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+                    self.terminalView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+                ])
+            }
+            self.terminalView.isHidden = false
+
             if let tv = self.terminalView as? LocalProcessTerminalView {
-                // Force SwiftTerm to recalculate size for the restored frame
                 tv.needsLayout = true
                 tv.needsDisplay = true
                 self.makeFirstResponder(tv)
