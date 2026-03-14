@@ -9,7 +9,7 @@ import SwiftTerm
 
 class FloatingPanel: NSPanel, PanelStateDelegate {
 
-    private let dragBarHeight: CGFloat = 24
+    private let dragBarHeight: CGFloat = 28
     private let miniWidth: CGFloat = 200
     private let miniHeight: CGFloat = 44
     private let tuckedThickness: CGFloat = 50
@@ -34,7 +34,8 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         self.stateManager = stateManager
         super.init(
             contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable,
+                        .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -48,7 +49,15 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         becomesKeyOnlyIfNeeded = false
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
+
+        // Transparent title bar — traffic lights visible, title hidden
+        titlebarAppearsTransparent = true
+        titleVisibility = .hidden
+        title = "PeepScreen"
+
+        // Minimum size for the panel
+        minSize = NSSize(width: 300, height: 200)
 
         let effectView = NSVisualEffectView(frame: contentRect)
         effectView.material = .hudWindow
@@ -66,11 +75,13 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         effectView.addSubview(dragBarHostView)
         effectView.addSubview(terminalView)
 
+        let titleBarHeight: CGFloat = 28
+
         NSLayoutConstraint.activate([
             dragBarHostView.topAnchor.constraint(equalTo: effectView.topAnchor),
             dragBarHostView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
             dragBarHostView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
-            dragBarHostView.heightAnchor.constraint(equalToConstant: dragBarHeight),
+            dragBarHostView.heightAnchor.constraint(equalToConstant: titleBarHeight),
 
             terminalView.topAnchor.constraint(equalTo: dragBarHostView.bottomAnchor),
             terminalView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
@@ -84,6 +95,11 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func close() {
+        // Red button tucks instead of closing
+        stateManager.tuck(edge: .left)
+    }
 
     // MARK: - Mouse handling
 
@@ -310,6 +326,12 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         tuckedTabHostView = nil
     }
 
+    private func setTrafficLightsHidden(_ hidden: Bool) {
+        standardWindowButton(.closeButton)?.isHidden = hidden
+        standardWindowButton(.miniaturizeButton)?.isHidden = hidden
+        standardWindowButton(.zoomButton)?.isHidden = hidden
+    }
+
     private func saveExpandedFrameIfNeeded() {
         if frame.width > miniWidth {
             lastExpandedFrame = frame
@@ -329,6 +351,12 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     private func transitionToExpanded() {
         removeTrackingArea()
         removeTuckedTab()
+
+        // Restore HUD material and traffic lights
+        (contentView as? NSVisualEffectView)?.state = .active
+        (contentView as? NSVisualEffectView)?.material = .hudWindow
+        setTrafficLightsHidden(false)
+        styleMask.insert(.resizable)
 
         dragBarHostView.isHidden = false
         dragBarHostView.rootView = DragBarView(isMini: false, lastLine: "")
@@ -366,6 +394,8 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
 
         // Remove terminal from layout so it doesn't resize with the mini frame
         terminalView.removeFromSuperview()
+        setTrafficLightsHidden(true)
+        styleMask.remove(.resizable)
         dragBarHostView.rootView = DragBarView(isMini: true, lastLine: stateManager.lastLineText)
         dragBarHostView.isHidden = false
         removeTuckedTab()
@@ -386,12 +416,19 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         // Remove terminal from layout so it doesn't resize with the tucked frame
         terminalView.removeFromSuperview()
         dragBarHostView.isHidden = true
+        setTrafficLightsHidden(true)
+        styleMask.remove(.resizable)
 
         let targetFrame = tuckedFrame(for: edge)
 
-        animateFrame(to: targetFrame, duration: 0.2, cornerRadius: 4) { [weak self] in
-            self?.addTuckedTabView(edge: edge)
-            self?.installTrackingArea()
+        animateFrame(to: targetFrame, duration: 0.2, cornerRadius: 16) { [weak self] in
+            guard let self else { return }
+            // Hide the HUD material so only the SwiftUI glow shows
+            (self.contentView as? NSVisualEffectView)?.state = .inactive
+            (self.contentView as? NSVisualEffectView)?.material = .underWindowBackground
+            self.backgroundColor = .clear
+            self.addTuckedTabView(edge: edge)
+            self.installTrackingArea()
         }
     }
 
@@ -465,6 +502,13 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
 
     func applyPreferences() {
         alphaValue = CGFloat(PreferencesManager.shared.panelOpacity)
+        applyTheme()
+    }
+
+    func applyTheme() {
+        if let tv = terminalView as? LocalProcessTerminalView {
+            ThemeManager.shared.apply(to: tv)
+        }
     }
 
     func updateMiniContent() {

@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import SwiftUI
 import SwiftTerm
 
 class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDelegate {
@@ -16,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
     private var previousApp: NSRunningApplication?
     private var localMonitor: Any?
     private var globalMonitor: Any?
+    private var preferencesWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -49,6 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
         statusBarController.onPreferencesRequested = { [weak self] in self?.showPreferences() }
 
         setupGlobalHotkey()
+        setupPreferencesObservers()
 
         DispatchQueue.main.async { [self] in
             let shell = PreferencesManager.shared.defaultShell
@@ -78,8 +81,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
     // MARK: - Preferences
 
     func showPreferences() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        if let existing = preferencesWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        // Dispatch async so the status bar menu fully closes first —
+        // otherwise NSApp.activate can be swallowed on accessory apps.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let hostingController = NSHostingController(rootView: PreferencesView())
+            let window = NSWindow(contentViewController: hostingController)
+            window.styleMask = [.titled, .closable]
+            window.title = "PeepScreen Settings"
+            window.center()
+            window.isReleasedWhenClosed = false
+            window.level = .floating
+            self.preferencesWindow = window
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     // MARK: - Global Hotkey
@@ -92,6 +114,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
                 self?.togglePanelVisibility()
                 return nil
             }
+            // Cmd+, for preferences
+            if event.modifierFlags.contains(.command) &&
+               event.charactersIgnoringModifiers == "," {
+                self?.showPreferences()
+                return nil
+            }
             return event
         }
 
@@ -101,6 +129,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, LocalProcessTerminalViewDele
                event.keyCode == 17 {
                 self?.togglePanelVisibility()
             }
+        }
+    }
+
+    // MARK: - Preferences Observers
+
+    private func setupPreferencesObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .preferencesChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.panel?.applyPreferences()
+        }
+        NotificationCenter.default.addObserver(
+            forName: .themeChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.panel?.applyTheme()
         }
     }
 

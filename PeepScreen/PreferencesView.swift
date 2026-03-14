@@ -28,9 +28,80 @@ class PreferencesManager: ObservableObject {
     }
 }
 
+struct ThemeSectionView: View {
+    @ObservedObject var themeManager: ThemeManager
+
+    var body: some View {
+        Section("Theme") {
+            Picker("Color Scheme", selection: $themeManager.currentTheme) {
+                ForEach(themeManager.allThemes) { theme in
+                    Text(theme.name).tag(theme)
+                }
+            }
+
+            ColorPreviewStrip(colors: themeManager.currentTheme.ansiColors)
+
+            HStack {
+                Button("Import Theme File...") {
+                    themeManager.importTheme()
+                }
+                Button("Auto-Detect") {
+                    let found = themeManager.autoDetectThemes()
+                    for theme in found {
+                        themeManager.customThemes.removeAll { $0.id == theme.id }
+                        themeManager.customThemes.append(theme)
+                    }
+                    if let first = found.first {
+                        themeManager.currentTheme = first
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ColorPreviewStrip: View {
+    var colors: [String]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<min(colors.count, 16), id: \.self) { i in
+                Rectangle()
+                    .fill(Color(nsColor: TerminalTheme.nsColor(from: colors[i])))
+                    .frame(width: 16, height: 16)
+                    .cornerRadius(2)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct FontSectionView: View {
+    @ObservedObject var themeManager: ThemeManager
+
+    var body: some View {
+        Section("Font") {
+            TextField("Font Family (blank = system mono)", text: $themeManager.fontFamily)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Text("Size")
+                Slider(value: $themeManager.fontSize, in: 8...28, step: 1)
+                Text("\(Int(themeManager.fontSize))pt")
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .trailing)
+            }
+        }
+    }
+}
+
+extension Notification.Name {
+    static let preferencesChanged = Notification.Name("PreferencesChanged")
+    static let themeChanged = Notification.Name("ThemeChanged")
+}
+
 struct PreferencesView: View {
     @ObservedObject var prefs = PreferencesManager.shared
-    var onOpacityChanged: ((Double) -> Void)?
+    @ObservedObject var themeManager = ThemeManager.shared
 
     var body: some View {
         Form {
@@ -43,6 +114,10 @@ struct PreferencesView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
+            ThemeSectionView(themeManager: themeManager)
+
+            FontSectionView(themeManager: themeManager)
+
             Section("Appearance") {
                 HStack {
                     Text("Panel Opacity")
@@ -54,9 +129,18 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 380, height: 240)
-        .onChange(of: prefs.panelOpacity) { _, newValue in
-            onOpacityChanged?(newValue)
+        .frame(width: 420, height: 480)
+        .onChange(of: prefs.panelOpacity) { _, _ in
+            NotificationCenter.default.post(name: .preferencesChanged, object: nil)
+        }
+        .onChange(of: themeManager.currentTheme) { _, _ in
+            NotificationCenter.default.post(name: .themeChanged, object: nil)
+        }
+        .onChange(of: themeManager.fontFamily) { _, _ in
+            NotificationCenter.default.post(name: .themeChanged, object: nil)
+        }
+        .onChange(of: themeManager.fontSize) { _, _ in
+            NotificationCenter.default.post(name: .themeChanged, object: nil)
         }
     }
 }

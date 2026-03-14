@@ -51,27 +51,28 @@ struct TuckedTabView: View {
     var isVertical: Bool
 
     var body: some View {
-        Group {
-            if isVertical {
-                VStack {
-                    Spacer()
-                    dot
-                    Spacer()
-                }
-            } else {
-                HStack {
-                    Spacer()
-                    dot
-                    Spacer()
-                }
-            }
+        ZStack {
+            // Soft green glow background
+            RoundedRectangle(cornerRadius: 16)
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.green.opacity(0.5),
+                            Color.green.opacity(0.2),
+                            Color.green.opacity(0.05)
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 100
+                    )
+                )
+
+            // Brighter center glow
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.green.opacity(0.15))
+                .blur(radius: 8)
+                .padding(4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var dot: some View {
-        Circle()
-            .fill(Color.green)
-            .frame(width: 5, height: 5)
     }
 }
