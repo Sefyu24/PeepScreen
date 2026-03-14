@@ -17,6 +17,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
     private let edgeSnapThreshold: CGFloat = 30
 
     private var terminalView: NSView!
+    private var effectView: NSVisualEffectView!
     private var dragBarHostView: NSHostingView<DragBarView>!
     private var tuckedTabHostView: NSHostingView<TuckedTabView>?
     private var previewWindow: NSWindow?
@@ -59,7 +60,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         // Minimum size for the panel
         minSize = NSSize(width: 300, height: 200)
 
-        let effectView = NSVisualEffectView(frame: contentRect)
+        effectView = NSVisualEffectView(frame: contentRect)
         effectView.material = .hudWindow
         effectView.blendingMode = .behindWindow
         effectView.state = .active
@@ -75,13 +76,11 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         effectView.addSubview(dragBarHostView)
         effectView.addSubview(terminalView)
 
-        let titleBarHeight: CGFloat = 28
-
         NSLayoutConstraint.activate([
             dragBarHostView.topAnchor.constraint(equalTo: effectView.topAnchor),
             dragBarHostView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
             dragBarHostView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
-            dragBarHostView.heightAnchor.constraint(equalToConstant: titleBarHeight),
+            dragBarHostView.heightAnchor.constraint(equalToConstant: dragBarHeight),
 
             terminalView.topAnchor.constraint(equalTo: dragBarHostView.bottomAnchor),
             terminalView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
@@ -310,7 +309,7 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
 
     private func animateFrame(to target: NSRect, duration: TimeInterval = 0.25,
                               cornerRadius: CGFloat, completion: (() -> Void)? = nil) {
-        (contentView as? NSVisualEffectView)?.layer?.cornerRadius = cornerRadius
+        effectView.layer?.cornerRadius = cornerRadius
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -353,8 +352,8 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         removeTuckedTab()
 
         // Restore HUD material and traffic lights
-        (contentView as? NSVisualEffectView)?.state = .active
-        (contentView as? NSVisualEffectView)?.material = .hudWindow
+        effectView.state = .active
+        effectView.material = .hudWindow
         setTrafficLightsHidden(false)
         styleMask.insert(.resizable)
 
@@ -424,8 +423,8 @@ class FloatingPanel: NSPanel, PanelStateDelegate {
         animateFrame(to: targetFrame, duration: 0.2, cornerRadius: 16) { [weak self] in
             guard let self else { return }
             // Hide the HUD material so only the SwiftUI glow shows
-            (self.contentView as? NSVisualEffectView)?.state = .inactive
-            (self.contentView as? NSVisualEffectView)?.material = .underWindowBackground
+            self.effectView.state = .inactive
+            self.effectView.material = .underWindowBackground
             self.backgroundColor = .clear
             self.addTuckedTabView(edge: edge)
             self.installTrackingArea()

@@ -133,14 +133,5 @@ struct PreferencesView: View {
         .onChange(of: prefs.panelOpacity) { _, _ in
             NotificationCenter.default.post(name: .preferencesChanged, object: nil)
         }
-        .onChange(of: themeManager.currentTheme) { _, _ in
-            NotificationCenter.default.post(name: .themeChanged, object: nil)
-        }
-        .onChange(of: themeManager.fontFamily) { _, _ in
-            NotificationCenter.default.post(name: .themeChanged, object: nil)
-        }
-        .onChange(of: themeManager.fontSize) { _, _ in
-            NotificationCenter.default.post(name: .themeChanged, object: nil)
-        }
     }
 }

@@ -17,25 +17,19 @@ struct TerminalTheme: Codable, Identifiable, Equatable, Hashable {
     var cursorColor: String?
     var selectionColor: String?
 
-    static func nsColor(from hex: String) -> NSColor {
+    static func hexToRGB(_ hex: String) -> (UInt16, UInt16, UInt16)? {
         let h = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        guard h.count == 6, let val = UInt64(h, radix: 16) else {
-            return .white
-        }
-        let r = CGFloat((val >> 16) & 0xFF) / 255.0
-        let g = CGFloat((val >> 8) & 0xFF) / 255.0
-        let b = CGFloat(val & 0xFF) / 255.0
-        return NSColor(red: r, green: g, blue: b, alpha: 1.0)
+        guard h.count == 6, let val = UInt64(h, radix: 16) else { return nil }
+        return (UInt16((val >> 16) & 0xFF), UInt16((val >> 8) & 0xFF), UInt16(val & 0xFF))
+    }
+
+    static func nsColor(from hex: String) -> NSColor {
+        guard let (r, g, b) = hexToRGB(hex) else { return .white }
+        return NSColor(red: CGFloat(r) / 255.0, green: CGFloat(g) / 255.0, blue: CGFloat(b) / 255.0, alpha: 1.0)
     }
 
     static func swiftTermColor(from hex: String) -> Color {
-        let h = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        guard h.count == 6, let val = UInt64(h, radix: 16) else {
-            return Color(red: 255, green: 255, blue: 255)
-        }
-        let r = UInt16((val >> 16) & 0xFF)
-        let g = UInt16((val >> 8) & 0xFF)
-        let b = UInt16(val & 0xFF)
+        guard let (r, g, b) = hexToRGB(hex) else { return Color(red: 255, green: 255, blue: 255) }
         return Color(red: r, green: g, blue: b)
     }
 
@@ -116,24 +110,24 @@ enum TerminalThemeParser {
         let ext = url.pathExtension.lowercased()
         if ext == "itermcolors" { return .iterm2 }
         if ext == "toml" { return .alacritty }
-        // Try reading content to detect ghostty format
-        if let content = try? String(contentsOf: url, encoding: .utf8) {
-            if content.contains("palette") && content.contains("=") {
-                return .ghostty
-            }
-            if content.contains("foreground") && content.contains("=") && !content.contains("[") {
-                return .ghostty
-            }
-        }
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        if content.contains("palette") && content.contains("=") { return .ghostty }
+        if content.contains("foreground") && content.contains("=") && !content.contains("[") { return .ghostty }
         return nil
     }
 
     static func parse(from url: URL) -> TerminalTheme? {
         guard let format = detect(from: url) else { return nil }
+        let name = url.deletingPathExtension().lastPathComponent
         switch format {
-        case .ghostty: return parseGhostty(from: url)
-        case .iterm2: return parseITerm2(from: url)
-        case .alacritty: return parseAlacritty(from: url)
+        case .ghostty:
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            return parseGhostty(content: content, name: name)
+        case .iterm2:
+            return parseITerm2(from: url)
+        case .alacritty:
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            return parseAlacritty(content: content, name: name)
         }
     }
 
@@ -141,6 +135,10 @@ enum TerminalThemeParser {
 
     static func parseGhostty(from url: URL) -> TerminalTheme? {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return parseGhostty(content: content, name: url.deletingPathExtension().lastPathComponent)
+    }
+
+    static func parseGhostty(content: String, name: String) -> TerminalTheme? {
 
         var ansi = [String](repeating: "#000000", count: 16)
         var fg = "#FFFFFF"
@@ -175,7 +173,6 @@ enum TerminalThemeParser {
             }
         }
 
-        let name = url.deletingPathExtension().lastPathComponent
         return TerminalTheme(
             id: "import-\(name)", name: name,
             ansiColors: ansi, foreground: fg, background: bg,
@@ -223,7 +220,10 @@ enum TerminalThemeParser {
 
     static func parseAlacritty(from url: URL) -> TerminalTheme? {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return parseAlacritty(content: content, name: url.deletingPathExtension().lastPathComponent)
+    }
 
+    static func parseAlacritty(content: String, name: String) -> TerminalTheme? {
         var fg = "#FFFFFF"
         var bg = "#000000"
         var cursor: String?
@@ -280,7 +280,6 @@ enum TerminalThemeParser {
         }
 
         let ansi = normalColors + brightColors
-        let name = url.deletingPathExtension().lastPathComponent
         return TerminalTheme(
             id: "import-\(name)", name: name,
             ansiColors: ansi, foreground: fg, background: bg,
@@ -308,17 +307,19 @@ class ThemeManager: ObservableObject {
     static let shared = ThemeManager()
 
     @Published var currentTheme: TerminalTheme {
-        didSet { saveState() }
+        didSet { scheduleSave() }
     }
     @Published var customThemes: [TerminalTheme] = [] {
-        didSet { saveState() }
+        didSet { scheduleSave() }
     }
     @Published var fontFamily: String {
-        didSet { saveState() }
+        didSet { scheduleSave() }
     }
     @Published var fontSize: Double {
-        didSet { saveState() }
+        didSet { scheduleSave() }
     }
+
+    private var saveWorkItem: DispatchWorkItem?
 
     var allThemes: [TerminalTheme] {
         TerminalTheme.allBuiltIn + customThemes
@@ -349,6 +350,16 @@ class ThemeManager: ObservableObject {
         self.fontSize = loadedSize
         self.customThemes = loadedCustom
         self.currentTheme = loadedTheme
+    }
+
+    private func scheduleSave() {
+        saveWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.saveState()
+            NotificationCenter.default.post(name: .themeChanged, object: nil)
+        }
+        saveWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
     }
 
     private func saveState() {
